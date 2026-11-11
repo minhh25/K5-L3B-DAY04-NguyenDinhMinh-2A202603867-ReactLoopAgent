@@ -42,9 +42,34 @@ Sau bài chính, bạn có thể mở rộng agent để điều tra **GitHub, C
 
 ## 1. Chuẩn bị
 
-- Python **3.10+**, có Internet và API key của **một** trong bốn provider.
+- Python **3.10+**. Có thể dùng **Ollama local không cần API key**, hoặc một provider cloud có key.
 - Chọn model có hỗ trợ **tool calling**. API provider/model có thể phát sinh chi phí.
 - Không cần cài package: project dùng Python standard library.
+
+### Ollama local trên macOS — không dùng `.env`, không cần API key
+
+Hướng dẫn server, context và quy trình lab đầy đủ: [OLLAMA_LOCAL.md](OLLAMA_LOCAL.md).
+Adapter dùng cấu hình `'ollama': (None, 'http://127.0.0.1:11434/v1/chat/completions')`;
+không gửi header `Authorization` và không tự chuyển sang cloud.
+
+Sau khi Ollama server đã chạy và tải model bằng `ollama pull qwen3.5:4b`, mở terminal tại repo:
+
+```bash
+labPython="$(command -v python3)"
+export PROVIDER=ollama
+export MODEL=qwen3.5:4b
+export JUDGE_PROVIDER=ollama
+export JUDGE_MODEL=qwen3.5:4b
+
+"$labPython" -m unittest discover -s tests -v
+"$labPython" run.py 'Kiểm tra GitHub Actions và dẫn nguồn.'
+"$labPython" evals/run_evals.py --case E2 --output eval_results_ollama_e2.json
+```
+
+Provider mặc định của CLI là `ollama`; vẫn cần chỉ định `MODEL`. Không cần `uv`.
+Các biến trên chỉ có hiệu lực trong terminal hiện tại và các chương trình chạy từ nó.
+
+### Provider cloud
 
 Fork repo đề về tài khoản của bạn, đổi tên theo mẫu (chi tiết ở [SUBMISSION.md](SUBMISSION.md)), clone về máy rồi mở terminal tại thư mục đó:
 
@@ -59,6 +84,7 @@ Chọn cấu hình khác nếu cần:
 
 | `PROVIDER` | Biến chứa key | `MODEL` |
 |---|---|---|
+| `ollama` | Không cần key | Model local đã tải, ví dụ `qwen3.5:4b`. |
 | `openai` | `OPENAI_API_KEY` | Tên model OpenAI bạn được cấp quyền dùng. |
 | `gemini` | `GEMINI_API_KEY` | Tên model Gemini hỗ trợ function calling. |
 | `anthropic` | `ANTHROPIC_API_KEY` | Tên model Claude hỗ trợ tool use. |
@@ -82,10 +108,10 @@ python3 evals/run_evals.py --output eval_before.json
 python3 evals/run_evals.py --output eval_after.json
 ```
 
-- Mặc định là `snapshot`: đọc dữ liệu được lưu sẵn; vẫn cần LLM API key.
+- Mặc định là `snapshot`: đọc dữ liệu được lưu sẵn; LLM chạy local với Ollama hoặc dùng key nếu chọn cloud.
 - `live`: gọi status API thật, dữ liệu thay đổi và cần Internet. Cloudflare khuyến nghị User-Agent có thông tin liên hệ; giảng viên có thể đặt `export STATUS_USER_AGENT="StatusAgentLab/1.0 (contact: email-lop@example.edu)"` bằng thông tin liên hệ thực của lớp.
-- Unit tests dùng fake provider, không cần key. **Ban đầu một số tests thất bại** vì `agent.py` chưa được implement.
-- Eval gọi LLM cho agent và LLM judge, tiêu tốn token. Mỗi case có điểm 0–100; điểm tổng là trung bình các case. Nếu có case chưa chấm được, điểm tổng là `null`. Đọc giải thích và trace; điểm judge là ước lượng, cần kiểm tra lại.
+- Unit tests dùng fake provider, không cần key hay server Ollama. `agent.py` đã có agent loop và validation nguồn.
+- Eval gọi LLM cho agent và LLM judge. Với Ollama local, cả hai dùng tài nguyên máy, không tính phí API cloud. Mỗi case có điểm 0–100; điểm tổng là trung bình các case. Nếu có case chưa chấm được, điểm tổng là `null`. Đọc giải thích và trace; điểm judge là ước lượng, cần kiểm tra lại.
 - Có thể override bằng `--provider`, `--model`, `--max-steps`. `--max-steps` là số lần gọi model, mặc định 6 với `run.py`, 8 với `evals/run_evals.py` và 16 khi chạy eval bonus.
 
 Snapshot bài chính được lưu ngày 09/11/2026; snapshot của ba API bổ sung được lưu ngày 10/11/2026. Không dùng nó để trả lời tình trạng hiện tại trong thực tế. Khi chạy live, API có thể rate limit, timeout hoặc thay đổi dữ liệu.

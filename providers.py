@@ -1,10 +1,11 @@
-"""Bốn provider cùng một interface. Không chứa agent loop."""
+"""Cloud và Ollama local cùng một interface. Không chứa agent loop."""
 import json
 import os
 import urllib.error
 import urllib.request
 
 CONFIG = {
+    'ollama': (None, 'http://127.0.0.1:11434/v1/chat/completions'),
     'openai': ('OPENAI_API_KEY', 'https://api.openai.com/v1/chat/completions'),
     'gemini': ('GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
     'openrouter': ('OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1/chat/completions'),
@@ -12,13 +13,15 @@ CONFIG = {
 }
 
 
-def post_json(url, headers, payload):
+def post_json(url, headers, payload, timeout=60):
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json', **headers})
     try:
-        with urllib.request.urlopen(req, timeout=60) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         # Do not print response bodies: they may contain account or request data.
+        if url == CONFIG['ollama'][1]:
+            raise RuntimeError(f'Ollama trả HTTP {exc.code}; kiểm tra server, model đã tải và hỗ trợ tool calling.') from exc
         raise RuntimeError(f'Provider trả HTTP {exc.code}; kiểm tra model, key và quota.') from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f'Không kết nối được provider: {exc.reason}') from exc
@@ -37,8 +40,8 @@ class Provider:
             raise ValueError('Cần đặt MODEL là model có hỗ trợ tool calling.')
         self.name, self.model = name, model
         key_name, self.url = CONFIG[name]
-        self.key = os.getenv(key_name)
-        if not self.key:
+        self.key = os.getenv(key_name) if key_name else None
+        if key_name and not self.key:
             raise ValueError(f'Thiếu {key_name}; xem README.md.')
 
     def complete(self, messages, schemas):
@@ -47,10 +50,16 @@ class Provider:
         payload = {'model': self.model, 'messages': messages}
         if schemas:
             payload['tools'] = schemas
-        data = post_json(self.url, {'Authorization': f'Bearer {self.key}'}, payload)
+        headers = {'Authorization': f'Bearer {self.key}'} if self.key else {}
+        if self.name == 'ollama':
+            # Qwen3.5: ưu tiên thời gian chạy lab, không sinh thinking dài.
+            payload.update(reasoning_effort='none', temperature=0.2, max_tokens=2048)
+            data = post_json(self.url, headers, payload, timeout=180)
+        else:
+            data = post_json(self.url, headers, payload)
         choice = data['choices'][0]
         message = choice['message']
-        calls = [{'id': c['id'], 'name': c['function']['name'], 'arguments': c['function']['arguments']} for c in message.get('tool_calls', [])]
+        calls = [{'id': c['id'], 'name': c['function']['name'], 'arguments': c['function']['arguments']} for c in (message.get('tool_calls') or [])]
         return {'message': message, 'calls': calls, 'finish': choice.get('finish_reason'), 'usage': data.get('usage', {})}
 
     def _anthropic(self, messages, schemas):

@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent import run_agent
-from providers import Provider
+from providers import CONFIG, Provider
 from scenarios import ScenarioTools
 from grading import grade_case, summarize, bonus_points
 from bonus.tools import BonusTools
@@ -33,8 +33,8 @@ def run_case(case, args):
 
 def main():
     parser = argparse.ArgumentParser(description='Chạy agent và chấm eval 0–100')
-    choices = ['openai', 'gemini', 'anthropic', 'openrouter']
-    parser.add_argument('--provider', choices=choices, default=os.getenv('PROVIDER', 'openai'))
+    choices = list(CONFIG)
+    parser.add_argument('--provider', choices=choices, default=os.getenv('PROVIDER', 'ollama'))
     parser.add_argument('--model', default=os.getenv('MODEL'))
     parser.add_argument('--judge-provider', choices=choices, default=os.getenv('JUDGE_PROVIDER'))
     parser.add_argument('--judge-model', default=os.getenv('JUDGE_MODEL'))
@@ -60,6 +60,10 @@ def main():
         print(f"Đang chạy {case['id']}", flush=True)
         item = run_case(case, args)
         print(f"{case['id']}: {item['grade'].get('score')} ({item['grade']['status']})", flush=True)
+        if item['grade']['status'] == 'unscored':
+            print(f"{case['id']} - lý do: {item['grade'].get('reason', 'Không có chi tiết')}", flush=True)
+            if item.get('result', {}).get('error'):
+                print(f"{case['id']} - lỗi agent/provider: {item['result']['error']}", flush=True)
         return item
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(run_and_print, selected))
